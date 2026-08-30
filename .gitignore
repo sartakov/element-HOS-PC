@@ -1,0 +1,33 @@
+# Node / package manager
+/node_modules
+**/node_modules
+/oh_modules
+**/oh_modules
+
+# Local config (machine-specific)
+/local.properties
+
+# IDE
+/.idea
+**/.idea
+
+# Build output
+**/build
+
+# Hvigor / DevEco generated
+/.hvigor
+**/.hvigor
+**/.preview
+**/.cxx
+**/esmodule
+*.tsbuildinfo
+*.tsbuildinfo.linter
+
+# Linters / analyzers
+.clangd
+.clang-format
+.clang-tidy
+/.appanalyzer
+
+# Tests
+**/.test

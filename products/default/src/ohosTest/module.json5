@@ -1,0 +1,12 @@
+{
+  "module": {
+    "name": "default_test",
+    "type": "feature",
+    "deviceTypes": [
+      "phone",
+      "2in1"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Element - the Matrix client for HarmonyOS"
+    },
+    {
+      "name": "ability_desc",
+      "value": "Hosts the element-web Matrix client in an ArkWeb view"
+    },
+    {
+      "name": "ability_label",
+      "value": "Element"
+    }
+  ]
+}
