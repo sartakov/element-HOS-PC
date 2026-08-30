@@ -4,6 +4,7 @@
     "type": "entry",
     "description": "$string:module_desc",
     "mainElement": "DefaultAbility",
+    "srcEntry": "./ets/entryability/EntryAbilityStage.ets",
     "deviceTypes": [
       "phone",
       "2in1"
@@ -17,6 +18,9 @@
       },
       {
         "name": "ohos.permission.GET_NETWORK_INFO"
+      },
+      {
+        "name": "ohos.permission.PREPARE_APP_TERMINATE"
       }
     ],
     "abilities": [
@@ -28,6 +32,7 @@
         "label": "$string:ability_label",
         "startWindowIcon": "$media:startIcon",
         "startWindowBackground": "$color:start_window_background",
+        "launchType": "singleton",
         "exported": true,
         "skills": [
           {

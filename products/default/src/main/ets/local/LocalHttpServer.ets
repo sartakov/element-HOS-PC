@@ -16,7 +16,7 @@ export class LocalHttpServer {
   async start(): Promise<string> {
     const srv: socket.TCPSocketServer = socket.constructTCPSocketServerInstance();
     this.server = srv;
-    await srv.listen({ address: '127.0.0.1', port: 0, family: 1 });
+    await srv.listen({ address: '127.0.0.1', port: 8448, family: 1 });
     await new Promise<void>((resolve) => {
       setTimeout(() => {
         resolve();

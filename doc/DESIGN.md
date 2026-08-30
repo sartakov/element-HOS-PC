@@ -41,8 +41,8 @@ multi-engineer effort tracked separately by the official project).
 │    ├─ RawfileExtractor.copyToSandbox()                                           │
 │    │     rawfile/element/*  →  filesDir/element/  (663 files, once)              │
 │    ├─ LocalHttpServer.start()                                                    │
-│    │     listens on 127.0.0.1:<port>, serves filesDir/element/                   │
-│    └─ Web({ src: http://127.0.0.1:<port>/ })  (ArkWeb)                           │
+│    │     listens on 127.0.0.1:8448, serves filesDir/element/                     │
+│    └─ Web({ src: http://127.0.0.1:8448/ })  (ArkWeb)                             │
 │            │                                                                     │
 │            ▼                                                                     │
 │  ┌────────────────────────────────────────────────────────────┐                  │
@@ -60,12 +60,22 @@ multi-engineer effort tracked separately by the official project).
 2. `RawfileExtractor` copies the packaged `rawfile/element/` tree into
    `context.filesDir + '/element'`. A `.extracted` marker file records completion so the
    copy runs only once (663 files, ~136 MB — a few seconds).
-3. `LocalHttpServer` binds a `TCPSocketServer` to `127.0.0.1:0` (ephemeral port), reads the
+3. `LocalHttpServer` binds a `TCPSocketServer` to the **fixed** loopback address
+   `127.0.0.1:8448` (the same well-known port the mobile element-HOS build uses), reads the
    allocated port, and serves the sandbox directory with correct `Content-Type`,
    `Content-Length`, and `Connection: close` semantics.
-4. The ArkWeb `Web` component loads `http://127.0.0.1:<port>/`. Because the page now has a
+4. The ArkWeb `Web` component loads `http://127.0.0.1:8448/`. Because the page now has a
    real HTTP origin, element-web's `fetch(config.json)` and `fetch(i18n/languages.json)`
    succeed, and its Service Worker/IndexedDB calls work.
+
+> **Fixed port (8448) & login persistence.** The port is *fixed* (not ephemeral) so the page
+> origin is **constant across app relaunches**. element-web stores its login session, device
+> keys and crypto data in IndexedDB, which is keyed by origin. With an ephemeral port
+> (`127.0.0.1:<n>` changes every launch) the origin would differ on each run and the saved
+> session would be unreachable, forcing re-login. Binding to the same `127.0.0.1:8448` every
+> time keeps the origin stable and IndexedDB readable, so the user stays logged in across
+> restarts. (See also the `.extracted` marker in section 7, which stops the rawfile bundle
+> from being re-copied over the sandbox and wiping that IndexedDB.)
 
 ## 5. Why `resource://rawfile/` was abandoned
 
@@ -104,8 +114,10 @@ to `mobile_guide/` (its native-app download page) unless
 
 ### `LocalHttpServer.ets` (`products/default/src/main/ets/local/`)
 - Uses `socket.constructTCPSocketServerInstance()` from `@kit.NetworkKit`.
-- `start(): Promise<string>` — `listen({ address: '127.0.0.1', port: 0, family: 1 })`, then
-  `getLocalAddress()` for the allocated port, returns `http://127.0.0.1:<port>`.
+- `start(): Promise<string>` — `listen({ address: '127.0.0.1', port: 8448, family: 1 })`, reads
+  the allocated port via `getLocalAddress()`, and returns `http://127.0.0.1:8448`. The fixed
+  port keeps the origin (and therefore the IndexedDB login/session store) stable across
+  relaunches.
 - Per-connection: buffers `message` chunks until `\r\n\r\n`, parses the request line,
   percent-decodes the path, resolves it against the root with traversal protection, and
   serves the file with the correct MIME type. Handles `GET`/`HEAD`; `Connection: close`.
@@ -122,12 +134,35 @@ to `mobile_guide/` (its native-app download page) unless
   (e.g. a CORS-blocked PWA `manifest.json`) are ignored.
 - Shuts the server down in `aboutToDisappear()`.
 
+## 7a. 2-in-1 "close-to-taskbar" behavior
+
+On 2-in-1 (PC-style) devices, pressing the window **X** should *not* quit a messenger — it
+should hide the app to the taskbar/dock with the process kept alive, and reopen on the icon
+click. Two cooperating mechanisms implement this:
+
+- **`EntryAbilityStage.ets`** (`products/default/src/main/ets/entryability/`) — registered as
+  the module-level stage via `srcEntry` in `module.json5`. Its
+  `onPrepareTerminationAsync(): Promise<AbilityConstant.PrepareTermination>` returns
+  `CANCEL`, so when the user chooses to end the app from the dock/taskbar the process stays
+  resident instead of terminating.
+- **`DefaultAbility.ets`** — the single `UIAbility` (declared `launchType: "singleton"`):
+  - keeps the main `Window` (from `onWindowStageCreate`) for later manipulation,
+  - overrides `onPrepareToTerminate(): boolean` to return `true` (cancel the close) **and**
+    call `window.minimize()`, parking the window in the taskbar,
+  - overrides `onNewWant()` to restore the window via `window.recover()` when the user
+    reopens the app from the taskbar/dock icon (a hot launch on the singleton ability).
+
+Requires `ohos.permission.PREPARE_APP_TERMINATE`; `onPrepareToTerminate` applies only on
+2-in-1 devices and only to a normal user close.
+
 ## 8. Permissions
 
 Declared in `products/default/src/main/module.json5`:
 - `ohos.permission.INTERNET` — required for the local HTTP server and for the WebView to reach
   Matrix homeservers.
 - `ohos.permission.GET_NETWORK_INFO` — network-state visibility.
+- `ohos.permission.PREPARE_APP_TERMINATE` — lets the app intercept a close/termination request
+  so it can hide to the taskbar instead of exiting (see section 7a).
 
 The local server binds only to loopback (`127.0.0.1`), so no external exposure.
 
@@ -146,7 +181,8 @@ Element/
         ├── ets/local/LocalHttpServer.ets   # HTTP file server
         ├── ets/local/RawfileExtractor.ets  # rawfile → sandbox extractor
         ├── ets/defaultability/DefaultAbility.ets
-        ├── module.json5                    # permissions + main ability
+        ├── ets/entryability/EntryAbilityStage.ets  # ability-stage lifecycle (close-to-taskbar)
+        ├── module.json5                    # permissions + main ability + ability-stage
         └── resources/
             ├── rawfile/element/            # ★ the built element-web bundle
             └── base/{element,media,profile}
@@ -203,6 +239,7 @@ and set `"mobile_guide_toast": false` in `config.json`, as described in section 
 | Service workers / PWA | Used over the `http://` origin; offline caching limited by WebView context |
 | Voice/video (Element Call) | Bundled; depends on runtime media grants |
 | Native integration | Future: bridge native capabilities (share, camera, notifications, biometrics) into element-web via `javaScriptProxy` |
+| Close-to-taskbar (2-in-1) | Implemented: window X / dock close hides to taskbar with process alive; reopen via icon (section 7a). To verify on-device: click X and confirm the app re-opens from the taskbar without re-logging in |
 
 ### Recommended follow-ups
 1. **Viewport tuning**: experiment with `Web` `layoutMode(WebLayoutMode.FIT_CONTENT)`,

@@ -17,8 +17,8 @@ WebView and serves it from a **local HTTP server** running inside the app.
 │  Index.ets (ArkUI @Entry)                                                                    │
 │    │ on launch:                                                                              │
 │    │  1. RawfileExtractor copies rawfile/element/* (663 files) → filesDir/element            │
-│    │  2. LocalHttpServer starts on http://127.0.0.1:<port> serving that directory            │
-│    │  3. ArkWeb `Web` loads http://127.0.0.1:<port>/                                         │
+│    │  2. LocalHttpServer starts on http://127.0.0.1:8448 serving that directory                    │
+│    │  3. ArkWeb `Web` loads http://127.0.0.1:8448/                                                 │
 │    ▼                                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────────────────────┐        │
 │  │  element-web static bundle (packaged as rawfile, served over HTTP)                │        │
@@ -57,10 +57,11 @@ Element/
 │   └── src/main/
 │       ├── ets/
 │       │   ├── pages/Index.ets         # ArkWeb host page (the Element UI)
-│       │   ├── local/LocalHttpServer.ets    # minimal HTTP/1.1 file server (ArkTS)
+│       │   ├── local/LocalHttpServer.ets    # fixed-port (8448) HTTP/1.1 file server (ArkTS)
 │       │   ├── local/RawfileExtractor.ets   # extracts rawfile bundle → sandbox
-│       │   └── defaultability/DefaultAbility.ets
-│       ├── module.json5             # permissions, main ability
+│       │   ├── defaultability/DefaultAbility.ets   # UIAbility (close-to-taskbar on 2-in-1)
+│       │   └── entryability/EntryAbilityStage.ets  # ability-stage (keeps process alive)
+│       ├── module.json5             # permissions, main ability, ability-stage
 │       └── resources/
 │           ├── rawfile/element/     # ★ the built element-web bundle (663 files, ~136 MB)
 │           └── base/                # strings, colors, app icons
@@ -133,7 +134,12 @@ cp -R ../element-web/apps/web/webapp/* products/default/src/main/resources/rawfi
 ## Notes & known limitations
 
 - The client runs in a WebView; it is the full element-web app, not a native ArkUI rewrite.
-- Session/IndexedDB persistence lives in the app sandbox and should survive restarts.
+- Session/IndexedDB persistence lives in the app sandbox. The local server binds a **fixed**
+  port (`127.0.0.1:8448`), so the page origin stays constant across relaunches and the saved
+  login/session survives restarts (no re-login).
+- On 2-in-1 devices, closing the window (**X**) hides the app to the taskbar with the process
+  kept alive; clicking the taskbar/dock icon reopens it still logged in (see `doc/DESIGN.md`
+  §7a).
 - The default homeserver is set in `rawfile/element/config.json` (currently
   `https://matrix-client.matrix.org`).
 - Service workers are used (over the `http://` origin) but offline/PWA caching is limited by
