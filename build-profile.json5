@@ -3,14 +3,14 @@
     "signingConfigs": [
       {
         "name": "default",
-        "type": "HarmonyOS",
+        "type": "OpenHarmony",
         "material": {
-          "certpath": "/Users/sartakov/.ohos/config/APP-CERT.cer",
-          "keyAlias": "debugKey",
+          "certpath": "$HOME/signing/Element-PC/harmony/APP-CERT.cer",
+          "keyAlias": "underleaf-app",
           "keyPassword": "***REDACTED***",
-          "profile": "/Users/sartakov/.ohos/config/APP-PROFILE.p7b",
+          "profile": "$HOME/signing/Element-PC/harmony/APP-PROFILE.p7b",
           "signAlg": "SHA256withECDSA",
-          "storeFile": "/Users/sartakov/.ohos/config/APP-KEYSTORE.p12",
+          "storeFile": "$HOME/signing/Element-PC/harmony/keytool/APP-KEYSTORE.p12",
           "storePassword": "***REDACTED***"
         }
       }
@@ -19,9 +19,10 @@
       {
         "name": "default",
         "signingConfig": "default",
+        "compileSdkVersion": "26",
         "targetSdkVersion": "6.0.1(21)",
         "compatibleSdkVersion": "6.0.1(21)",
-        "runtimeOS": "HarmonyOS",
+        "runtimeOS": "OpenHarmony",
         "buildOption": {
           "strictMode": {
             "caseSensitiveCheck": true,
