@@ -2,7 +2,10 @@
 # compile_and_run.sh — build + AGC-sign for head-less mode
 #
 # Usage:
-#   ./compile_and_run.sh
+#   ./compile_and_run.sh [--wipe] [TARGET]
+#
+#   --wipe  uninstall the app first, clearing all app data incl. the login
+#           session (by default app data is preserved across reinstalls)
 #
 # Builds and signs the HarmonyOS HAP without requiring a connected device.
 # Set environment variables as needed (see original script for defaults).
@@ -24,7 +27,17 @@ log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_TOP="${PROJECT_TOP:-$SCRIPT_DIR}"
-TARGET="${1:-${TARGET:-DEVICE_IP:PORT}}"
+TARGET="${TARGET:-DEVICE_IP:PORT}"
+WIPE=0
+_POSARGS=()
+for _a in "$@"; do
+  case "$_a" in
+    --wipe|-w) WIPE=1 ;;
+    -*) log "unknown option: $_a"; exit 1 ;;
+    *) _POSARGS+=("$_a") ;;
+  esac
+done
+[ "${#_POSARGS[@]}" -gt 0 ] && TARGET="${_POSARGS[0]}"
 BUNDLE="${BUNDLE:-com.example.Element_PC}"
 ROOT="${ROOT:-$HOME}"
 SIGN_HOME="${SIGN_HOME:-$ROOT/signing/Element-PC/harmony}"
@@ -138,12 +151,24 @@ if [ "$CONNECTED" -ne 1 ]; then
 fi
 log "connected"
 
-"$HDC" shell bm uninstall -n "$BUNDLE" >/dev/null 2>&1   # clear stale different-signature install (9568332)
-if ! "$HDC" install -r "$SIGNED" 2>&1 | tee /tmp/opencode/install.log | grep -q 'install bundle successfully'; then
-  log "FATAL: install failed"
-  cat /tmp/opencode/install.log >&2
-  exit 1
+# install -r keeps app data (WebView IndexedDB -> login session must survive restarts).
+# Only fall back to a full uninstall+reinstall when the in-place upgrade fails
+# (e.g. stale different-signature install, 9568332). --wipe forces the old behaviour.
+if [ "$WIPE" -eq 1 ]; then
+  log "wipe requested: uninstalling $BUNDLE first (app data will be cleared)"
+  "$HDC" shell bm uninstall -n "$BUNDLE" >/dev/null 2>&1
 fi
-log "install OK"
+if "$HDC" install -r "$SIGNED" 2>&1 | tee /tmp/opencode/install.log | grep -q 'install bundle successfully'; then
+  log "install OK (data preserved)"
+else
+  log "in-place install failed, retrying after uninstall (this wipes app data)"
+  "$HDC" shell bm uninstall -n "$BUNDLE" >/dev/null 2>&1
+  if ! "$HDC" install -r "$SIGNED" 2>&1 | tee /tmp/opencode/install.log | grep -q 'install bundle successfully'; then
+    log "FATAL: install failed"
+    cat /tmp/opencode/install.log >&2
+    exit 1
+  fi
+  log "install OK (after uninstall)"
+fi
 "$HDC" shell aa start -a DefaultAbility -b "$BUNDLE"
 log "DONE — app launched on $TARGET"

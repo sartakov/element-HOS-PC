@@ -1,8 +1,14 @@
 import { socket } from '@kit.NetworkKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 
 const CRLF: string = '\r\n';
+const FIXED_PORT: number = 8448;
+const MAX_BIND_ATTEMPTS: number = 10;
+const BIND_RETRY_DELAY_MS: number = 500;
+const DOMAIN = 0x0000;
+const TAG = 'LocalHttpServer';
 
 export class LocalHttpServer {
   private rootDir: string;
@@ -14,16 +20,50 @@ export class LocalHttpServer {
   }
 
   async start(): Promise<string> {
-    const srv: socket.TCPSocketServer = socket.constructTCPSocketServerInstance();
-    this.server = srv;
-    await srv.listen({ address: '127.0.0.1', port: 8448, family: 1 });
-    await new Promise<void>((resolve) => {
-      setTimeout(() => {
-        resolve();
-      }, 100);
-    });
-    const localAddr: socket.NetAddress = await srv.getLocalAddress();
-    this.baseUrl = `http://127.0.0.1:${localAddr.port}`;
+    let srv: socket.TCPSocketServer | null = null;
+    let boundPort: number = -1;
+    for (let attempt = 0; attempt < MAX_BIND_ATTEMPTS; attempt++) {
+      srv = socket.constructTCPSocketServerInstance();
+      this.server = srv;
+      try {
+        await srv.listen({ address: '127.0.0.1', port: FIXED_PORT, family: 1 });
+        await new Promise<void>((resolve) => {
+          setTimeout(() => {
+            resolve();
+          }, 100);
+        });
+        const localAddr: socket.NetAddress = await srv.getLocalAddress();
+        boundPort = localAddr.port ?? -1;
+        if (boundPort === FIXED_PORT) {
+          break;
+        }
+        // The SDK silently falls back to a random port when the fixed port is
+        // busy. A different port changes the page origin, which orphans the
+        // IndexedDB login session and forces a re-login. Close and retry so the
+        // origin (and the session) stays stable across relaunches.
+        hilog.warn(DOMAIN, TAG, 'Port %{public}d busy, got %{public}d; retrying', FIXED_PORT, boundPort);
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'listen on %{public}d failed: %{public}s; retrying', FIXED_PORT, JSON.stringify(e));
+      }
+      if (srv !== null) {
+        try {
+          await srv.close();
+        } catch (e) {
+          // ignore close errors
+        }
+        srv = null;
+        this.server = null;
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(() => {
+          resolve();
+        }, BIND_RETRY_DELAY_MS);
+      });
+    }
+    if (srv === null || boundPort !== FIXED_PORT) {
+      throw new Error(`Unable to bind fixed port ${FIXED_PORT}`);
+    }
+    this.baseUrl = `http://127.0.0.1:${boundPort}`;
     srv.on('connect', (connection: socket.TCPSocketConnection) => {
       this.handleConnection(connection);
     });

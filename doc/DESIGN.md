@@ -75,7 +75,10 @@ multi-engineer effort tracked separately by the official project).
 > session would be unreachable, forcing re-login. Binding to the same `127.0.0.1:8448` every
 > time keeps the origin stable and IndexedDB readable, so the user stays logged in across
 > restarts. (See also the `.extracted` marker in section 7, which stops the rawfile bundle
-> from being re-copied over the sandbox and wiping that IndexedDB.)
+> from being re-copied over the sandbox and wiping that IndexedDB.) Reinstalling the HAP with
+> `hdc install -r` preserves this data — the session is only lost when the app is
+> **uninstalled**, so `compile_and_run.sh` preserves data by default and uninstalls only when
+> given `--wipe`.
 
 ## 5. Why `resource://rawfile/` was abandoned
 
@@ -117,7 +120,11 @@ to `mobile_guide/` (its native-app download page) unless
 - `start(): Promise<string>` — `listen({ address: '127.0.0.1', port: 8448, family: 1 })`, reads
   the allocated port via `getLocalAddress()`, and returns `http://127.0.0.1:8448`. The fixed
   port keeps the origin (and therefore the IndexedDB login/session store) stable across
-  relaunches.
+  relaunches. If `listen()` cannot bind 8448, the platform **silently allocates a random
+  port** instead of failing; the server therefore verifies the actually-bound port via
+  `getLocalAddress()` and, when it differs, closes and retries up to `MAX_BIND_ATTEMPTS`
+  times before giving up. This prevents the origin from silently changing between launches
+  (which would orphan the saved session in IndexedDB).
 - Per-connection: buffers `message` chunks until `\r\n\r\n`, parses the request line,
   percent-decodes the path, resolves it against the root with traversal protection, and
   serves the file with the correct MIME type. Handles `GET`/`HEAD`; `Connection: close`.
@@ -214,6 +221,18 @@ hvigorw assembleApp --mode project -p product=default --no-daemon
 Outputs:
 - HAP: `products/default/build/default/outputs/default/default-default-signed.hap`
 - App: `build/outputs/default/Element-default-signed.app`
+
+For device work, the repo ships a one-shot build + sign + deploy + launch wrapper,
+`compile_and_run.sh`:
+
+```bash
+bash compile_and_run.sh <device-ip>:<port>          # preserves app data (stays logged in)
+bash compile_and_run.sh --wipe <device-ip>:<port>   # uninstalls first (clears all data)
+```
+
+It reinstalls the HAP **in place** (`install -r`) so the WebView's IndexedDB login/session
+survives each deploy; `--wipe` forces a clean install (e.g. for a stale different-signature
+install) at the cost of wiping the saved session.
 
 ## 11. Rebuilding the element-web bundle
 

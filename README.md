@@ -111,6 +111,18 @@ hdc install -r products/default/build/default/outputs/default/default-default-si
 hdc shell aa start -a DefaultAbility -b com.example.element
 ```
 
+Or use the one-shot build+sign+deploy+launch script (see `compile_and_run.sh`):
+
+```bash
+bash compile_and_run.sh <device-ip>:<port>          # build, sign, deploy, launch
+bash compile_and_run.sh --wipe <device-ip>:<port>   # same, but clear all app data first
+```
+
+By default the script reinstalls **in place** (`install -r`) and **preserves app data**, so
+the saved login/session survives rebuilds — you do not have to sign in again after every
+deploy. Pass `--wipe` for a clean slate (e.g. after changing signing certificates), which
+uninstalls the app first and clears all data including the stored session.
+
 On first launch the app copies the ~136 MB bundle into the app sandbox (a few seconds) and
 starts the local server, then shows the Element login screen.
 
@@ -136,7 +148,9 @@ cp -R ../element-web/apps/web/webapp/* products/default/src/main/resources/rawfi
 - The client runs in a WebView; it is the full element-web app, not a native ArkUI rewrite.
 - Session/IndexedDB persistence lives in the app sandbox. The local server binds a **fixed**
   port (`127.0.0.1:8448`), so the page origin stays constant across relaunches and the saved
-  login/session survives restarts (no re-login).
+  login/session survives restarts (no re-login). Reinstalling with `hdc install -r` preserves
+  this data; **uninstalling the app wipes it**, so `compile_and_run.sh` preserves data by
+  default and only uninstalls when told to with `--wipe`.
 - On 2-in-1 devices, closing the window (**X**) hides the app to the taskbar with the process
   kept alive; clicking the taskbar/dock icon reopens it still logged in (see `doc/DESIGN.md`
   §7a).
