@@ -3,6 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { common } from '@kit.AbilityKit';
 import { LocalHttpServer } from '../local/LocalHttpServer';
 import { RawfileExtractor } from '../local/RawfileExtractor';
+import { NotificationBridge } from '../local/NotificationBridge';
 
 const DOMAIN = 0x0000;
 const TAG = 'ElementIndex';
@@ -21,6 +22,7 @@ const TAG = 'ElementIndex';
 struct Index {
   private controller: webview.WebviewController = new webview.WebviewController();
   private server: LocalHttpServer | null = null;
+  private notifications: NotificationBridge = new NotificationBridge();
   @State isLoading: boolean = true;
   @State loadError: string = '';
   @State baseUrl: string = '';
@@ -35,7 +37,14 @@ struct Index {
             .databaseAccess(true)
             .fileAccess(true)
             .mixedMode(MixedMode.All)
-            .cacheMode(CacheMode.Default)
+            .cacheMode(CacheMode.None)
+            .javaScriptProxy({
+              object: this.notifications,
+              name: 'hosNative',
+              methodList: [],
+              asyncMethodList: ['notify', 'clearBadge'],
+              controller: this.controller
+            })
             .userAgent('Mozilla/5.0 (Linux; Android 14; HarmonyOS) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36')
             .width('100%')
             .height('100%')
@@ -133,9 +142,10 @@ struct Index {
   private async startElement(): Promise<void> {
     try {
       const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      this.notifications.init(ctx);
       const destRoot: string = ctx.filesDir + '/element';
-      const extracted: boolean = await RawfileExtractor.isExtracted(destRoot);
-      if (!extracted) {
+      const current: boolean = await RawfileExtractor.isCurrent(ctx, destRoot);
+      if (!current) {
         await RawfileExtractor.copyToSandbox(ctx, 'element', destRoot);
       }
       const server: LocalHttpServer = new LocalHttpServer(destRoot);

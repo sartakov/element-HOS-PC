@@ -57,8 +57,9 @@ Element/
 │   └── src/main/
 │       ├── ets/
 │       │   ├── pages/Index.ets         # ArkWeb host page (the Element UI)
-│       │   ├── local/LocalHttpServer.ets    # fixed-port (8448) HTTP/1.1 file server (ArkTS)
-│       │   ├── local/RawfileExtractor.ets   # extracts rawfile bundle → sandbox
+│   │   ├── local/LocalHttpServer.ets    # fixed-port (8448) HTTP/1.1 file server (ArkTS)
+│   │   ├── local/NotificationBridge.ets # Web Notifications API → NotificationKit bridge
+│   │   ├── local/RawfileExtractor.ets   # extracts rawfile bundle → sandbox
 │       │   ├── defaultability/DefaultAbility.ets   # UIAbility (close-to-taskbar on 2-in-1)
 │       │   └── entryability/EntryAbilityStage.ets  # ability-stage (keeps process alive)
 │       ├── module.json5             # permissions, main ability, ability-stage
@@ -136,11 +137,14 @@ pnpm exec nx run element-web:prebuild:rethemendex
 pnpm exec nx run element-web:build          # → apps/web/webapp
 ```
 
-Restage into the project (keep `prelude.js` and the `mobile_guide_toast: false` config):
+Restage into the project (keep `prelude.js` and the `mobile_guide_toast: false` config,
+then re-apply the notifier patch with the helper script, which restores the
+`doc/DESIGN.md` §7b bundle edit and bumps the `prelude.js?v=` cache-buster):
 
 ```bash
 mkdir -p products/default/src/main/resources/rawfile/element
 cp -R ../element-web/apps/web/webapp/* products/default/src/main/resources/rawfile/element/
+python3 scripts/patch-notifier.py   # re-apply the §7b notifier patch + bump cache-buster
 ```
 
 ## Notes & known limitations
@@ -154,9 +158,23 @@ cp -R ../element-web/apps/web/webapp/* products/default/src/main/resources/rawfi
 - On 2-in-1 devices, closing the window (**X**) hides the app to the taskbar with the process
   kept alive; clicking the taskbar/dock icon reopens it still logged in (see `doc/DESIGN.md`
   §7a).
-- The default homeserver is set in `rawfile/element/config.json` (currently
+- The configured homeserver is set in `rawfile/element/config.json` (currently
   `https://matrix-client.matrix.org`).
 - Service workers are used (over the `http://` origin) but offline/PWA caching is limited by
   the WebView context.
+- **Notifications.** element-web delivers message notifications from the sync loop running
+  *inside the WebView*, via the Web Notifications API (`new window.Notification(...)`) — which
+  ArkWeb otherwise silently drops. A shim in `prelude.js`:
+  - auto-enables element-web's own device-level setting (`notifications_enabled` in
+    localStorage, otherwise **off by default** — the gate that silently blocks every
+    real notification);
+  - replaces `window.Notification` and forwards constructor calls to a native bridge
+  (`NotificationBridge.ets` → `@kit.NotificationKit`).
+  The shipped element-web bundle is also patched (see `doc/DESIGN.md` §7b) so a per-device
+  "silenced" flag can't suppress popup notifications on this client. So while the app is
+  **resident** (normal use, incl. the 2-in-1 close-to-taskbar mode) incoming messages produce
+  an OS notification and update the launcher badge; clicking a notification reopens/focuses
+  the app. They do **not** work while the app process is fully terminated (that would require
+  a Matrix push gateway + background polling; not implemented). See also `doc/DESIGN.md` §12.
 - The on-screen layout currently uses the mobile user agent; the WebView viewport scale may
   need tuning per device. See `doc/DESIGN.md` for details.

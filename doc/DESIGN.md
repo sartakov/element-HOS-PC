@@ -39,7 +39,8 @@ multi-engineer effort tracked separately by the official project).
 │                                                                                  │
 │  products/default/src/main/ets/pages/Index.ets  (@Entry)                         │
 │    ├─ RawfileExtractor.copyToSandbox()                                           │
-│    │     rawfile/element/*  →  filesDir/element/  (663 files, once)              │
+│    │     rawfile/element/*  →  filesDir/element/ (663 files; re-extracted   │
+│    │     only when the shipped prelude/index/bundle signature changes)      │
 │    ├─ LocalHttpServer.start()                                                    │
 │    │     listens on 127.0.0.1:8448, serves filesDir/element/                     │
 │    └─ Web({ src: http://127.0.0.1:8448/ })  (ArkWeb)                             │
@@ -58,8 +59,11 @@ multi-engineer effort tracked separately by the official project).
 
 1. **Entry page** (`Index.ets`) calls `startElement()` from `aboutToAppear()`.
 2. `RawfileExtractor` copies the packaged `rawfile/element/` tree into
-   `context.filesDir + '/element'`. A `.extracted` marker file records completion so the
-   copy runs only once (663 files, ~136 MB — a few seconds).
+   `context.filesDir + '/element'`. A `.extracted` marker records a **signature** of the
+   shipped assets (FNV-1a hashes of `prelude.js` and `index.html` plus the element-web bundle
+   hash-directory name). On later starts the copy is skipped only when that signature still
+   matches, so `install -r` over an older extraction re-extracts whenever anything we ship
+   changed (663 files, ~136 MB — a few seconds), while leaving IndexedDB untouched.
 3. `LocalHttpServer` binds a `TCPSocketServer` to the **fixed** loopback address
    `127.0.0.1:8448` (the same well-known port the mobile element-HOS build uses), reads the
    allocated port, and serves the sandbox directory with correct `Content-Type`,
@@ -74,8 +78,8 @@ multi-engineer effort tracked separately by the official project).
 > (`127.0.0.1:<n>` changes every launch) the origin would differ on each run and the saved
 > session would be unreachable, forcing re-login. Binding to the same `127.0.0.1:8448` every
 > time keeps the origin stable and IndexedDB readable, so the user stays logged in across
-> restarts. (See also the `.extracted` marker in section 7, which stops the rawfile bundle
-> from being re-copied over the sandbox and wiping that IndexedDB.) Reinstalling the HAP with
+> restarts. (The `.extracted` marker now stores a signature and only forces a re-copy when
+> the shipped assets change — see section 2.) Reinstalling the HAP with
 > `hdc install -r` preserves this data — the session is only lost when the app is
 > **uninstalled**, so `compile_and_run.sh` preserves data by default and uninstalls only when
 > given `--wipe`.
@@ -131,9 +135,23 @@ to `mobile_guide/` (its native-app download page) unless
 
 ### `RawfileExtractor.ets` (`products/default/src/main/ets/local/`)
 - `copyToSandbox(ctx, rawRoot, destRoot)` — recursively walks the rawfile tree via
-  `resourceManager.getRawFileList()` and writes each file with `fileIo`. A `.extracted`
-  marker prevents re-copying.
-- `isExtracted(rootDir)` — true if the `.extracted` marker exists.
+  `resourceManager.getRawFileList()` and writes each file with `fileIo`, then stores the
+  current asset signature in a `.extracted` marker.
+- `isCurrent(ctx, destRoot)` — recomputes the signature and returns true when the sandbox
+  copy still matches the shipped assets, so `install -r` over an older extraction keeps
+  the served bundle fresh (re-extracts only when something really changed) while never
+  touching IndexedDB. The signature is an FNV-1a hash of `prelude.js` plus `index.html`,
+  plus the sorted `element/bundles` hash-directory listing from both rawfile and sandbox.
+- `Index.ets` calls `isCurrent()` at startup and falls back to `copyToSandbox()` only when
+  it reports stale.
+
+### `Web` component cache policy (`Index.ets`)
+- The `Web` component is created with `.cacheMode(CacheMode.None)`, and `index.html`
+  references `prelude.js?v=N` with a bumped version. Together they defeat ArkWeb's HTTP
+  cache and any stale service-worker copy, so every launch always serves the freshly
+  extracted local assets (important because the notifier/shim edits live in these files).
+  The `scripts/patch-notifier.py` helper bumps `?v=N` when the notifier patch is re-applied
+  after a bundle restage.
 
 ### `Index.ets` (`products/default/src/main/ets/pages/`)
 - Hosts the `Web` component, wired up in `startElement()` as above.
@@ -162,6 +180,56 @@ click. Two cooperating mechanisms implement this:
 Requires `ohos.permission.PREPARE_APP_TERMINATE`; `onPrepareToTerminate` applies only on
 2-in-1 devices and only to a normal user close.
 
+## 7b. Notifications (Web Notifications API → NotificationKit bridge)
+
+element-web plays message sounds and shows notifications from the sync loop running **inside
+the WebView**. It uses the Web Notifications API (`new window.Notification(title, {body,
+silent, icon})`, `Notification.permission`, `Notification.requestPermission`) from its
+`Web ChromePlatform`. ArkWeb accepts these calls, but they never produce an OS notification —
+so on a stock build the in-app sound plays while nothing reaches the notification center or
+the launcher badge.
+
+Because the bundle cannot be rewritten line-by-line, the app intercepts the API instead:
+
+0. **The real gate.** element-web's notifier (`Notifier.evaluateEvent` in the bundled
+   `8406.js`) decides whether a real message becomes a notification. Two of its gates are
+   **off by default** and were silently dropping every real message:
+   - `notificationsEnabled` (device-level setting backed by `localStorage
+     ["notifications_enabled"]`) defaults to **`false`**; `isEnabled() &&
+     displayPopupNotification(...)` never runs.
+   - a per-device **`is_silenced`** account-data flag set to `true` on first sync while
+     notifications were off (`if (isSilenced(client)) return`) suppresses popups.
+   The shipped defaults are overridden for this app:
+   - `prelude.js` sets `localStorage["notifications_enabled"] = "true"` on load (only when
+     unset, so an explicit user choice wins), and
+   - the vendored bundle `8406.js` is patched to drop the `isSilenced(client)` early-return
+     inside `displayPopupNotification` (the audio `isSilenced` gate and the UI refresh are
+     untouched). A message notifying in the currently-open room while the user has been
+     active there (< 2 min) is still suppressed, matching desktop behavior.
+1. **`prelude.js`** (injected before the bundle) replaces `window.Notification` with a shim
+   that reports `permission === "granted"`, resolves `requestPermission()` with
+   `"granted"`, and forwards every `new Notification(title, options)` to the native bridge as
+   `window.hosNative.notify(json)`. It also clears the badge on window `focus`.
+2. **`NotificationBridge.ets`** (`products/default/src/main/ets/local/`) is exposed to the
+   page via the `Web.javaScriptProxy` attribute (`name: 'hosNative'`,
+   `asyncMethodList: ['notify', 'clearBadge']`). Its `notify(json)` parses `{title, body,
+   tag}`, builds a `notificationManager.NotificationRequest` and publishes it through
+   `@kit.NotificationKit`:
+   - `slotType: SOCIAL_COMMUNICATION` with an empty `sound` (the in-app sound already plays,
+     so the OS notification is silent to avoid doubling it);
+   - `badgeNumber` incremented per notification, mirrored with `setBadgeNumber()` for the
+     launcher icon;
+   - a `wantAgent` targeting `DefaultAbility` (`START_ABILITY`, `CONSTANT_FLAG`) so that
+     clicking the notification reopens/focuses the app window;
+   - if notifications are disabled, `requestEnableNotification(context)` prompts the user
+     exactly once.
+   `clearBadge()` resets `setBadgeNumber(0)` when the window regains focus.
+
+Notifications therefore work while the app process is **resident** — including normal use on
+the 2-in-1 in close-to-taskbar mode (§7a), where the sync loop keeps running. They do **not**
+work when the process is fully terminated; that path would require a Matrix push gateway /
+pusher registration plus a background poll or push extension, which is out of scope (§12).
+
 ## 8. Permissions
 
 Declared in `products/default/src/main/module.json5`:
@@ -186,6 +254,7 @@ Element/
     └── src/main/
         ├── ets/pages/Index.ets             # ArkWeb host page
         ├── ets/local/LocalHttpServer.ets   # HTTP file server
+        ├── ets/local/NotificationBridge.ets # Web Notifications API → NotificationKit bridge
         ├── ets/local/RawfileExtractor.ets  # rawfile → sandbox extractor
         ├── ets/defaultability/DefaultAbility.ets
         ├── ets/entryability/EntryAbilityStage.ets  # ability-stage lifecycle (close-to-taskbar)
@@ -259,6 +328,7 @@ and set `"mobile_guide_toast": false` in `config.json`, as described in section 
 | Voice/video (Element Call) | Bundled; depends on runtime media grants |
 | Native integration | Future: bridge native capabilities (share, camera, notifications, biometrics) into element-web via `javaScriptProxy` |
 | Close-to-taskbar (2-in-1) | Implemented: window X / dock close hides to taskbar with process alive; reopen via icon (section 7a). To verify on-device: click X and confirm the app re-opens from the taskbar without re-logging in |
+| Notifications | Implemented while the app is resident: `prelude.js` shim forwards Web Notifications API calls to a native `NotificationBridge.ets` (NotificationKit publish + launcher badge + click-to-open wantAgent) (section 7b). **Not** available when the process is fully terminated — that would need a Matrix pusher/pushgateway + background polling |
 
 ### Recommended follow-ups
 1. **Viewport tuning**: experiment with `Web` `layoutMode(WebLayoutMode.FIT_CONTENT)`,
