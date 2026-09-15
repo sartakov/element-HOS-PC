@@ -54,8 +54,10 @@ done
 # ------------------------------------------------------- JDK 17 detection
 # Mirrors compile_and_run.sh so both scripts find the same JVM.
 JV="${JV:-}"
-if [ -z "$JV" ] && [ -x /usr/lib/jvm/java-17-openjdk-17/bin/java ]; then
-  JV=/usr/lib/jvm/java-17-openjdk-17
+if [ -z "$JV" ]; then
+  for _j in /usr/lib/jvm/java-17-openjdk-17*/ /usr/lib/jvm/java-17-openjdk*/; do
+    [ -x "$_j/bin/java" ] && JV="${_j%/}" && break
+  done
 fi
 if [ -z "$JV" ]; then
   JAVA_BIN="$(command -v java || true)"

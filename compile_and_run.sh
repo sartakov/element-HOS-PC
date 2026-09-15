@@ -56,9 +56,10 @@ case "$MODE" in
 esac
 JW="${JW:-$ROOT/clt/dist/command-line-tools}"
 if [ -z "${JV:-}" ]; then
-  if [ -x /usr/lib/jvm/java-17-openjdk-17/bin/java ]; then
-    JV=/usr/lib/jvm/java-17-openjdk-17
-  else
+  for _j in /usr/lib/jvm/java-17-openjdk-17*/ /usr/lib/jvm/java-17-openjdk*/; do
+    [ -x "$_j/bin/java" ] && JV="${_j%/}" && break
+  done
+  if [ -z "$JV" ]; then
     JAVA_BIN="$(command -v java || true)"
     [ -n "$JAVA_BIN" ] && JV="$(dirname "$(dirname "$(readlink -f "$JAVA_BIN")")")" || JV=""
   fi
