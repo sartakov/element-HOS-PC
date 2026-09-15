@@ -23,7 +23,7 @@
 #   PROFILE         provisioning profile       (default: $SIGN_HOME/app-<mode>.p7b)
 #   P12             signing keystore            (default: debug: kt-app.p12 / release: kt-app-release.p12)
 #   ALIAS           keystore key alias         (default: debug: underleaf-app / release: sys-sec-release)
-#   KEYPW           keystore/key password      (debug default: ***REDACTED***; release: prompted if unset)
+#   KEYPW           keystore/key password      (prompted if unset; never stored)
 #   HWG             path to `hvigorw`          (default: $ROOT/clt/dist/command-line-tools/bin/hvigorw)
 #   HDC             path to `hdc`              (default: <bundle>/sdk/default/openharmony/toolchains/hdc)
 #   JV              JAVA_HOME for keytool/java (default: openEuler JDK17 path if present, else `java` on PATH)
@@ -94,7 +94,11 @@ else
   PROFILE="${PROFILE:-$SIGN_HOME/app-debug.p7b}"
   P12="${P12:-$SIGN_HOME/keytool/kt-app.p12}"
   ALIAS="${ALIAS:-underleaf-app}"
-  KEYPW="${KEYPW:-***REDACTED***}"
+  KEYPW="${KEYPW:-}"
+  if [ -z "$KEYPW" ]; then
+    read -r -s -p "debug key password (KEYPW): " KEYPW; printf '\n'
+  fi
+  [ -n "$KEYPW" ] || { log "FATAL: debug KEYPW empty"; exit 1; }
   SIGNED="$SIGN_HOME/Element-PC-debug-signed.hap"
 fi
 
