@@ -29,6 +29,7 @@
 #   JV              JAVA_HOME for keytool/java (default: openEuler JDK17 path if present, else `java` on PATH)
 #   NODE_HOME       node home for hvigor       (default: <bundle>/tool/node)
 #   PATCH           dir with the hap-sign-tool log4j patch (default: /tmp/opencode/signing/patch)
+#   ARTEFACT_DIR    dir to copy the signed output to    (default: <mnt>/HarmonyOS/artefacts/$BUNDLE)
 set -u
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
@@ -183,6 +184,15 @@ log "sign OK"
 grep -q 'verify: Verify success' /tmp/opencode/verify.log \
   || { log "FATAL: verify-app failed (see /tmp/opencode/verify.log)"; cat /tmp/opencode/verify.log >&2; exit 1; }
 log "verify OK"
+
+# ------------------------------------------------------------------ copy artefact
+ARTEFACT_DIR="${ARTEFACT_DIR:-/mnt/linux_share/storage/Users/currentUser/HarmonyOS/artefacts/$BUNDLE}"
+mkdir -p "$ARTEFACT_DIR"
+if cp "$SIGNED" "$ARTEFACT_DIR/$(basename "$SIGNED")" 2>/dev/null; then
+  log "artefact copied -> $ARTEFACT_DIR/$(basename "$SIGNED")"
+else
+  log "WARNING: could not copy artefact to $ARTEFACT_DIR"
+fi
 
 # ------------------------------------------------------------------ release: stop here
 if [ "$MODE" = "release" ]; then
