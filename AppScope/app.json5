@@ -1,8 +1,8 @@
 {
   "app": {
-    "bundleName": "com.example.Element_PC",
-    "vendor": "example",
-    "versionCode": 1000000,
+    "bundleName": "com.sys_sec.element",
+    "vendor": "sys_sec",
+    "versionCode": 1000001,
     "versionName": "1.0.0",
     "icon": "$media:layered_image",
     "label": "$string:app_name"

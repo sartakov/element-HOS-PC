@@ -12,11 +12,11 @@ WebView and serves it from a **local HTTP server** running inside the app.
 ## How it works
 
 ```
-┌────────────────────────────── HarmonyOS App (com.example.element) ─────────────────────────────┐
+┌────────────────────────────── HarmonyOS App (com.sys_sec.element) ─────────────────────────────┐
 │                                                                                              │
 │  Index.ets (ArkUI @Entry)                                                                    │
 │    │ on launch:                                                                              │
-│    │  1. RawfileExtractor copies rawfile/element/* (663 files) → filesDir/element            │
+│    │  1. RawfileExtractor copies rawfile/element/* (571 files) → filesDir/element            │
 │    │  2. LocalHttpServer starts on http://127.0.0.1:8448 serving that directory                    │
 │    │  3. ArkWeb `Web` loads http://127.0.0.1:8448/                                                 │
 │    ▼                                                                                         │
@@ -64,7 +64,7 @@ Element/
 │       │   └── entryability/EntryAbilityStage.ets  # ability-stage (keeps process alive)
 │       ├── module.json5             # permissions, main ability, ability-stage
 │       └── resources/
-│           ├── rawfile/element/     # ★ the built element-web bundle (663 files, ~136 MB)
+│           ├── rawfile/element/     # ★ the built element-web bundle (571 files, ~68 MB)
 │           └── base/                # strings, colors, app icons
 ├── doc/DESIGN.md                    # detailed design document
 ├── build-profile.json5              # product/signing/version config
@@ -95,39 +95,62 @@ export JAVA_HOME=/Applications/DevEco-Studio.app/Contents/jbr/Contents/Home
 hvigorw assembleApp --mode project -p product=default --no-daemon
 ```
 
-Outputs:
-- Signed HAP: `products/default/build/default/outputs/default/default-default-signed.hap`
-- Signed app package: `build/outputs/default/Element-default-signed.app`
+Outputs (unsigned):
+- HAP: `products/default/build/default/outputs/default/default-default-unsigned.hap`
 
-Note: the CLI build requires a `signingConfigs` block in `build-profile.json5`. This repo
-references one (`default`) pointing at your local `~/.ohos/config/*` certificates; regenerate
-it in DevEco Studio if your certificates change.
+The CLI build is **unsigned** — signing is done by `compile_and_run.sh` (below) with
+the AppGallery key material in `$SIGN_HOME`; no `signingConfigs` block is kept in
+`build-profile.json5` (avoids committing credentials).
 
 ## Running / deploying
 
 Install the signed HAP over USB or Wi-Fi with hdc, then launch:
 
 ```bash
-hdc install -r products/default/build/default/outputs/default/default-default-signed.hap
-hdc shell aa start -a DefaultAbility -b com.example.element
+hdc install -r "$HOME/signing/Element-PC/harmony/Element-PC-debug-signed.hap"
+hdc shell aa start -a DefaultAbility -b com.sys_sec.element
 ```
 
 Or use the one-shot build+sign+deploy+launch script (see `compile_and_run.sh`):
 
 ```bash
-bash compile_and_run.sh <device-ip>:<port>          # build, sign, deploy, launch
-bash compile_and_run.sh --wipe <device-ip>:<port>   # same, but clear all app data first
+MODE=debug ./compile_and_run.sh <device-ip>:<port>       # build, sign, install, launch
+MODE=debug ./compile_and_run.sh --wipe <device-ip>:<port>  # same, but clear all app data first
+MODE=release ./compile_and_run.sh                         # build .app + release-sign (store)
 ```
+
+- `MODE=debug` (default) signs with the AGC debug cert/profile for bundle
+  `com.sys_sec.element` and installs on the device.
+- `MODE=release` builds the app package (`assembleApp`), signs the `.app` with
+  the AGC **release** cert/profile, and stops before install — release-signed
+  `.app` cannot be sideloaded (error 9568322) and must go through AppGallery
+  Connect.
+- Signing material lives in `$SIGN_HOME` (default `~/signing/Element-PC/harmony`):
+  `app-debug.cer/.p7b`, `app-release.cer/.p7b`, and the keystores under `keytool/`.
+  Generate the release keypair + CSR with `scripts/generate-release-key.sh`.
 
 By default the script reinstalls **in place** (`install -r`) and **preserves app data**, so
 the saved login/session survives rebuilds — you do not have to sign in again after every
 deploy. Pass `--wipe` for a clean slate (e.g. after changing signing certificates), which
 uninstalls the app first and clears all data including the stored session.
 
-On first launch the app copies the ~136 MB bundle into the app sandbox (a few seconds) and
+On first launch the app copies the ~68 MB bundle into the app sandbox (a few seconds) and
 starts the local server, then shows the Element login screen.
 
 ## Rebuilding the element-web bundle (when upstream changes)
+
+Grab the official prebuilt release tarball and restage it (recommended — the
+stable build, no local toolchain needed):
+
+```bash
+# download from https://github.com/element-hq/element-web/releases
+# (e.g. element-v1.12.27.tar.gz)
+RAW=products/default/src/main/resources/rawfile/element
+rm -rf "$RAW" && mkdir -p "$RAW"
+tar -xzf /path/to/element-v1.12.27.tar.gz -C "$RAW" --strip-components=1
+```
+
+Or build from source (dev setup with Node >= 22 + pnpm):
 
 ```bash
 cd ../element-web
@@ -135,16 +158,22 @@ pnpm install
 pnpm exec nx run element-web:prebuild:module_system
 pnpm exec nx run element-web:prebuild:rethemendex
 pnpm exec nx run element-web:build          # → apps/web/webapp
+mkdir -p products/default/src/main/resources/rawfile/element
+cp -R ../element-web/apps/web/webapp/* products/default/src/main/resources/rawfile/element/
 ```
 
-Restage into the project (keep `prelude.js` and the `mobile_guide_toast: false` config,
-then re-apply the notifier patch with the helper script, which restores the
+Then re-apply the project overrides and the notifier patch (which restores the
 `doc/DESIGN.md` §7b bundle edit and bumps the `prelude.js?v=` cache-buster):
 
 ```bash
-mkdir -p products/default/src/main/resources/rawfile/element
-cp -R ../element-web/apps/web/webapp/* products/default/src/main/resources/rawfile/element/
-python3 scripts/patch-notifier.py   # re-apply the §7b notifier patch + bump cache-buster
+RAW=products/default/src/main/resources/rawfile/element
+# carry the project prelude.js + config.json forward from the previous bundle
+cp "$RAW.previous/prelude.js" "$RAW/prelude.js"
+cp "$RAW.previous/config.json" "$RAW/config.json"
+# inject <script src="prelude.js?v=N"> into index.html before the bundle script
+python3 scripts/patch-notifier.py             # §7b notifier patch + bump cache-buster
+find "$RAW" -name "*.map" -delete            # strip source maps (~51 MB saved)
+echo v1.12.27 > "$RAW/version"
 ```
 
 ## Notes & known limitations

@@ -39,7 +39,7 @@ multi-engineer effort tracked separately by the official project).
 │                                                                                  │
 │  products/default/src/main/ets/pages/Index.ets  (@Entry)                         │
 │    ├─ RawfileExtractor.copyToSandbox()                                           │
-│    │     rawfile/element/*  →  filesDir/element/ (663 files; re-extracted   │
+│    │     rawfile/element/*  →  filesDir/element/ (571 files; re-extracted   │
 │    │     only when the shipped prelude/index/bundle signature changes)      │
 │    ├─ LocalHttpServer.start()                                                    │
 │    │     listens on 127.0.0.1:8448, serves filesDir/element/                     │
@@ -63,7 +63,7 @@ multi-engineer effort tracked separately by the official project).
    shipped assets (FNV-1a hashes of `prelude.js` and `index.html` plus the element-web bundle
    hash-directory name). On later starts the copy is skipped only when that signature still
    matches, so `install -r` over an older extraction re-extracts whenever anything we ship
-   changed (663 files, ~136 MB — a few seconds), while leaving IndexedDB untouched.
+   changed (571 files, ~68 MB — a few seconds), while leaving IndexedDB untouched.
 3. `LocalHttpServer` binds a `TCPSocketServer` to the **fixed** loopback address
    `127.0.0.1:8448` (the same well-known port the mobile element-HOS build uses), reads the
    allocated port, and serves the sandbox directory with correct `Content-Type`,
@@ -305,18 +305,28 @@ install) at the cost of wiping the saved session.
 
 ## 11. Rebuilding the element-web bundle
 
+Restage the official **prebuilt release tarball** (recommended, stable build):
+
+```bash
+# e.g. element-v1.12.27.tar.gz from https://github.com/element-hq/element-web/releases
+RAW=products/default/src/main/resources/rawfile/element
+rm -rf "$RAW" && mkdir -p "$RAW"
+tar -xzf /path/to/element-v1.12.27.tar.gz -C "$RAW" --strip-components=1
+```
+
+Or build from source (Node >= 22 + pnpm):
+
 ```bash
 cd ../element-web
 pnpm install
 pnpm exec nx run element-web:prebuild:module_system
 pnpm exec nx run element-web:prebuild:rethemendex
 pnpm exec nx run element-web:build      # → apps/web/webapp
-mkdir -p ../Element/products/default/src/main/resources/rawfile/element
-cp -R apps/web/webapp/* ../Element/products/default/src/main/resources/rawfile/element/
+cp -R apps/web/webapp/* <this-repo>/products/default/src/main/resources/rawfile/element/
 ```
 
-Then re-add `prelude.js` to `index.html` (a `<script src="prelude.js">` before the bundle)
-and set `"mobile_guide_toast": false` in `config.json`, as described in section 6.
+Then re-apply the project overrides (section 6), the notifier patch + cache-buster
+(`scripts/patch-notifier.py`), strip `*.map`, and bump `version`.
 
 ## 12. Known limitations & future work
 

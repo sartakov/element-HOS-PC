@@ -1,24 +1,8 @@
 {
   "app": {
-    "signingConfigs": [
-      {
-        "name": "default",
-        "type": "OpenHarmony",
-        "material": {
-          "certpath": "$HOME/signing/Element-PC/harmony/APP-CERT.cer",
-          "keyAlias": "underleaf-app",
-          "keyPassword": "***REDACTED***",
-          "profile": "$HOME/signing/Element-PC/harmony/APP-PROFILE.p7b",
-          "signAlg": "SHA256withECDSA",
-          "storeFile": "$HOME/signing/Element-PC/harmony/keytool/APP-KEYSTORE.p12",
-          "storePassword": "***REDACTED***"
-        }
-      }
-    ],
     "products": [
       {
         "name": "default",
-        "signingConfig": "default",
         "compileSdkVersion": "26",
         "targetSdkVersion": "6.0.1(21)",
         "compatibleSdkVersion": "6.0.1(21)",
