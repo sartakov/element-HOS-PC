@@ -14,7 +14,7 @@ export default class EntryAbilityStage extends AbilityStage {
   }
 
   async onPrepareTerminationAsync(): Promise<AbilityConstant.PrepareTermination> {
-    hilog.info(DOMAIN, TAG, '%{public}s', 'App close requested; canceling termination to keep running in taskbar');
-    return AbilityConstant.PrepareTermination.CANCEL;
+    hilog.info(DOMAIN, TAG, '%{public}s', 'App close requested from tray; terminating');
+    return AbilityConstant.PrepareTermination.TERMINATE_IMMEDIATELY;
   }
 }

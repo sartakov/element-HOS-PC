@@ -7,6 +7,15 @@ const DOMAIN = 0x0000;
 
 export default class DefaultAbility extends UIAbility {
   private mainWindow: window.Window | null = null;
+  private readonly windowStageCloseCb = (): boolean => {
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'X close button; blocking close and minimizing to taskbar');
+    if (this.mainWindow !== null) {
+      this.mainWindow.minimize().catch((err: BusinessError) => {
+        hilog.warn(DOMAIN, 'testTag', 'Failed to minimize window: %{public}s', JSON.stringify(err));
+      });
+    }
+    return true;
+  };
 
   onCreate(): void {
     try {
@@ -36,6 +45,12 @@ export default class DefaultAbility extends UIAbility {
       hilog.warn(DOMAIN, 'testTag', 'Failed to subscribe to window events: %{public}s', JSON.stringify(err));
     }
 
+    try {
+      windowStage.on('windowStageClose', this.windowStageCloseCb);
+    } catch (err) {
+      hilog.warn(DOMAIN, 'testTag', 'Failed to subscribe to windowStageClose: %{public}s', JSON.stringify(err));
+    }
+
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
@@ -46,6 +61,11 @@ export default class DefaultAbility extends UIAbility {
   }
 
   onWindowStageWillDestroy(windowStage: window.WindowStage): void {
+    try {
+      windowStage.off('windowStageClose', this.windowStageCloseCb);
+    } catch (err) {
+      hilog.warn(DOMAIN, 'testTag', 'Failed to unsubscribe windowStageClose: %{public}s', JSON.stringify(err));
+    }
     try {
       if (this.mainWindow !== null) {
         this.mainWindow.off('windowEvent');
@@ -68,14 +88,10 @@ export default class DefaultAbility extends UIAbility {
   }
 
   onPrepareToTerminate(): boolean {
-    // Cancel termination so the app stays resident; park the window in the taskbar instead.
-    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Close requested; canceling termination and minimizing to taskbar');
-    if (this.mainWindow !== null) {
-      this.mainWindow.minimize().catch((err: BusinessError) => {
-        hilog.warn(DOMAIN, 'testTag', 'Failed to minimize window: %{public}s', JSON.stringify(err));
-      });
-    }
-    return true;
+    // X-close is handled by the windowStageClose listener above. Any other close
+    // request (dock/tray "Close window") must be allowed to proceed and terminate.
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'onPrepareToTerminate: allowing close');
+    return false;
   }
 
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {

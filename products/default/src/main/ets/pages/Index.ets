@@ -114,8 +114,13 @@ struct Index {
   }
 
   onBackPress(): boolean {
-    if (this.controller.accessBackward()) {
-      return true;
+    try {
+      if (this.controller.accessBackward()) {
+        this.controller.backward();
+        return true;
+      }
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'backPress error: %{public}s', JSON.stringify(e));
     }
     return false;
   }
